@@ -38,8 +38,8 @@ from bs4 import BeautifulSoup
 
 # Set your API keys (replace with your keys or load securely)
 os.environ["OPENAI_API_KEY"] = "sk-proj-123456"
-os.environ["FIRECRAWL_API_KEY"] = "" # Replace with your key
-os.environ["GEMINI_API_KEY"] = ""  # Replace with your key
+os.environ["FIRECRAWL_API_KEY"] = st.secrets["firecrawl_key"]  # Replace with your 
+os.environ["GEMINI_API_KEY"] = st.secrets["gemini_key"] # Replace with your key
 
 # Configure Gemini LLM
 gemini_llm = LLM(
