@@ -4,7 +4,7 @@ crewai-tools==0.37.0
 databricks==0.2
 databricks-sdk==0.46.0
 pandas==2.2.3
-firecrawl-py==1.13.5
+firecrawl-py #firecrawl-py==1.13.5
 matplotlib==3.10.1
 matplotlib-inline==0.1.7
 pydantic==2.10.6
