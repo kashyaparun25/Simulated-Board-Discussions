@@ -38,8 +38,8 @@ from bs4 import BeautifulSoup
 
 # Set your API keys (replace with your keys or load securely)
 os.environ["OPENAI_API_KEY"] = "sk-proj-123456"
-#os.environ["FIRECRAWL_API_KEY"] = st.secrets["firecrawl_key"]  # Replace with your 
-#os.environ["GEMINI_API_KEY"] = st.secrets["gemini_key"] # Replace with your key
+# os.environ["FIRECRAWL_API_KEY"] = ""
+# os.environ["GEMINI_API_KEY"] = ""  # Replace with your key
 
 # Configure Gemini LLM
 gemini_llm = LLM(
@@ -112,13 +112,19 @@ class FileProcessor:
     @staticmethod
     def process_url(url):
         try:
-            scraper = FirecrawlScrapeWebsiteTool(
-                api_key=os.environ.get("FIRECRAWL_API_KEY"),
-                url=url,
-                page_options={"onlyMainContent": True}
-            )
-            result = scraper.run()
-            return result
+            if os.environ.get("FIRECRAWL_API_KEY"):
+                scraper = FirecrawlScrapeWebsiteTool(
+                    api_key=os.environ.get("FIRECRAWL_API_KEY"),
+                    url=url,
+                    page_options={"onlyMainContent": True}
+                )
+                result = scraper.run()
+                return result
+            else:
+                # Fallback to basic request
+                response = requests.get(url)
+                soup = BeautifulSoup(response.content, 'html.parser')
+                return soup.get_text()
         except Exception as e:
             print(f"Error scraping URL: {e}")
             # Fallback to basic request
@@ -177,10 +183,9 @@ class BoardDiscussionSystem:
     
     def __init__(self):
         # Tools
-        self.web_scraper = FirecrawlScrapeWebsiteTool(
-            api_key=os.environ.get("FIRECRAWL_API_KEY"),
-            page_options={"onlyMainContent": True}
-        )
+        self.web_scraper = None  # Initialize as None
+        
+        # Initialize other tools that don't require API keys
         self.file_tool = FileReadTool(
             config=dict(
                 llm=dict(
@@ -216,14 +221,32 @@ class BoardDiscussionSystem:
             'creativity': 50    # 0 (conventional) to 100 (highly creative)
         }
 
+    def initialize_web_scraper(self, api_key):
+        """Initialize the web scraper with the provided API key."""
+        if api_key:
+            try:
+                self.web_scraper = FirecrawlScrapeWebsiteTool(
+                    api_key=api_key,
+                    page_options={"onlyMainContent": True}
+                )
+                return True
+            except Exception as e:
+                print(f"Error initializing web scraper: {e}")
+                return False
+        return False
+
     def _create_research_agent(self):
+        tools = [self.file_tool, self.web_tool]
+        if self.web_scraper:
+            tools.append(self.web_scraper)
+            
         return Agent(
             role="Research Analyst",
             goal="Extract and summarize key information from documents and online sources.",
             backstory="""You are a skilled research analyst who excels at analyzing complex information 
             from various sources and summarizing key insights.""",
             verbose=True,
-            tools=[self.web_scraper, self.file_tool, self.web_tool],
+            tools=tools,
             llm=gemini_llm
         )
     
@@ -654,7 +677,16 @@ def create_streamlit_app():
                 #os.environ["OPENAI_API_KEY"] = openai_key
                 os.environ["FIRECRAWL_API_KEY"] = firecrawl_key
                 os.environ["GEMINI_API_KEY"] = gemini_key
-                st.success("✅ API keys saved!")
+                
+                # Initialize the web scraper with the new API key
+                if firecrawl_key:
+                    success = system.initialize_web_scraper(firecrawl_key)
+                    if success:
+                        st.success("✅ API keys saved and web scraper initialized!")
+                    else:
+                        st.warning("⚠️ API keys saved but web scraper initialization failed.")
+                else:
+                    st.success("✅ API keys saved!")
 
         # Discussion Settings
         st.header("🎛️ Discussion Settings")
