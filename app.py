@@ -12,6 +12,9 @@ import uuid
 from datetime import datetime
 import random
 import matplotlib.pyplot as plt
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Additional libraries from Code A
 from PIL import Image, ImageDraw
@@ -62,6 +65,100 @@ def generate_avatar(name, color):
     d.ellipse((5, 5, 95, 95), fill=color)
     d.text((50, 50), initials, fill="white", anchor="mm")
     return img
+# ---------------- Create DOCX File ----------------
+def markdown_to_word(markdown_content, topic):
+    """Convert markdown content to Word document format."""
+    doc = Document()
+    
+    # Add title
+    title = doc.add_heading(f"Board Discussion: {topic}", level=1)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add date
+    date_paragraph = doc.add_paragraph()
+    date_run = date_paragraph.add_run(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
+    date_run.italic = True
+    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Split the markdown content into sections
+    sections = markdown_content.split("## ")
+    
+    # Process each section
+    for i, section in enumerate(sections):
+        if i == 0:  # Skip the title section as we've already added it
+            continue
+            
+        # Extract section title and content
+        lines = section.strip().split("\n")
+        section_title = lines[0]
+        section_content = "\n".join(lines[1:]).strip()
+        
+        # Add section heading
+        doc.add_heading(section_title, level=2)
+        
+        # Process content based on section type
+        if "Participants" in section_title:
+            # Each participant is on a line starting with -
+            for line in section_content.split("\n"):
+                if line.startswith("- "):
+                    # Remove the bullet and add as paragraph
+                    participant_text = line[2:].strip()
+                    p = doc.add_paragraph()
+                    p.add_run("• ").bold = True
+                    p.add_run(participant_text)
+        
+        elif "Research Findings" in section_title:
+            # Add research findings as paragraphs
+            for paragraph in section_content.split("\n\n"):
+                if paragraph.strip():
+                    doc.add_paragraph(paragraph.strip())
+        
+        elif "Discussion Transcript" in section_title:
+            # Process each message in the transcript
+            for message in section_content.split("\n\n"):
+                if "**" in message and "**:" in message:
+                    # Extract speaker and content
+                    speaker_part = message.split("**:", 1)[0] + "**"
+                    content_part = message.split("**:", 1)[1].strip()
+                    
+                    # Add as formatted paragraph
+                    p = doc.add_paragraph()
+                    p.add_run(speaker_part.replace("**", "")).bold = True
+                    p.add_run(": " + content_part)
+                    
+                    # Add spacing after each message
+                    doc.add_paragraph("")
+                else:
+                    # Just add as regular paragraph if not a message
+                    if message.strip():
+                        doc.add_paragraph(message.strip())
+        
+        elif "Key Points" in section_title:
+            # Process bullet points
+            for line in section_content.split("\n"):
+                if line.startswith("- "):
+                    # Add as bullet point
+                    point_text = line[2:].strip()
+                    p = doc.add_paragraph()
+                    p.add_run("• ").bold = True
+                    p.add_run(point_text)
+    
+    return doc
+
+def generate_word_export(system):
+    """Generate a Word document from the discussion data."""
+    # First generate the markdown
+    md = system.generate_markdown_export()
+    
+    # Convert markdown to Word document
+    doc = markdown_to_word(md, system.discussion_topic)
+    
+    # Save to a BytesIO object
+    docx_io = BytesIO()
+    doc.save(docx_io)
+    docx_io.seek(0)
+    
+    return docx_io
 
 # ---------------- File Processor ----------------
 
@@ -719,13 +816,27 @@ def create_streamlit_app():
 
             if st.button("📥 Export Discussion", use_container_width=True):
                 md = system.generate_markdown_export()
-                st.download_button(
-                    "📄 Download Markdown",
-                    data=md,
-                    file_name=f"discussion_{datetime.now().strftime('%Y%m%d')}.md",
-                    mime="text/markdown",
-                    use_container_width=True
-                )
+                
+                # Create export options
+                export_cols = st.columns(2)
+                with export_cols[0]:
+                    st.download_button(
+                        "📄 Download as Markdown",
+                        data=md,
+                        file_name=f"discussion_{datetime.now().strftime('%Y%m%d')}.md",
+                        mime="text/markdown",
+                        use_container_width=True
+                    )
+                with export_cols[1]:
+                    # Generate Word document
+                    word_bytes = generate_word_export(system)
+                    st.download_button(
+                        "📝 Download as Word Document",
+                        data=word_bytes,
+                        file_name=f"discussion_{datetime.now().strftime('%Y%m%d')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
 
         # Reset Session button at bottom of sidebar
         st.markdown("---")
