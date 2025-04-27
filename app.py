@@ -1,7 +1,3 @@
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
 import os
 import streamlit as st
 import tempfile
@@ -65,6 +61,7 @@ def generate_avatar(name, color):
     d.ellipse((5, 5, 95, 95), fill=color)
     d.text((50, 50), initials, fill="white", anchor="mm")
     return img
+
 # ---------------- Create DOCX File ----------------
 def markdown_to_word(markdown_content, topic):
     """Convert markdown content to Word document format."""
