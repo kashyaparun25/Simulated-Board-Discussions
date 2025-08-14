@@ -56,24 +56,55 @@ class FileProcessor:
     def process_url(url):
         try:
             if os.environ.get("FIRECRAWL_API_KEY"):
+                # Use Firecrawl for better scraping
                 scraper = FirecrawlScrapeWebsiteTool(
                     api_key=os.environ.get("FIRECRAWL_API_KEY"),
-                    url=url,
                     page_options={"onlyMainContent": True}
                 )
-                result = scraper.run()
-                return result
+                result = scraper._run(url)
+                # Extract content from result
+                if isinstance(result, dict):
+                    # Try to get content from markdown or content field
+                    content = result.get('markdown', '') or result.get('content', '')
+                    if content:
+                        return content
+                    # If no content found, convert dict to string
+                    return str(result)
+                else:
+                    # If result is already a string
+                    return str(result)
             else:
-                # Fallback to basic request
-                response = requests.get(url)
+                # Fallback to basic request with better formatting
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Remove script and style elements
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                
+                # Get text and clean it up
+                text = soup.get_text()
+                
+                # Break into lines and remove leading and trailing space on each
+                lines = (line.strip() for line in text.splitlines())
+                # Break multi-headlines into a line each
+                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                # Drop blank lines
+                text = '\n'.join(chunk for chunk in chunks if chunk)
+                
+                return text
+        except Exception as e:
+            print(f"Error scraping URL {url}: {e}")
+            # Final fallback
+            try:
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
                 soup = BeautifulSoup(response.content, 'html.parser')
                 return soup.get_text()
-        except Exception as e:
-            print(f"Error scraping URL: {e}")
-            # Fallback to basic request
-            response = requests.get(url)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            return soup.get_text()
+            except Exception as e2:
+                print(f"Final fallback failed for URL {url}: {e2}")
+                return f"Failed to scrape URL: {url}. Error: {str(e)}"
 
     @classmethod
     def process_file(cls, file, file_type=None):

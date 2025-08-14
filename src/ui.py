@@ -11,7 +11,7 @@ from src.persona import Persona
 def process_user_message(system: BoardDiscussionSystem, message: str):
     """
     Process the user's message, add it to the discussion,
-    and trigger concurrent AI responses.
+    and trigger sequential AI responses one after another.
     """
     # 1. Format and add the user's message to the history
     with st.spinner("Formatting your message..."):
@@ -28,30 +28,24 @@ def process_user_message(system: BoardDiscussionSystem, message: str):
             "timestamp": datetime.now()
         })
 
-    # 2. Determine which AI personas will respond
+    # 2. Determine which AI personas will respond (1-2 for a more natural flow)
     responding_personas = random.sample(
         [p for p in system.personas if not p.is_user],
-        min(random.randint(1, 3), len(system.personas) - 1)
+        min(random.randint(1, 2), len(system.personas) - 1)
     )
     responding_ids = [p.id for p in responding_personas]
 
-    # 3. Get AI responses concurrently
+    # 3. Get AI responses sequentially (one after another)
     with st.spinner(f"Waiting for responses from {len(responding_personas)} agents..."):
-        responses = system.get_ai_responses(
+        responses = system.get_ai_responses_sequential(
             system.discussion_topic,
             system.research_findings,
             system.discussion_history,
             responding_ids
         )
 
-        # Add responses to history
-        for response in responses:
-            system.discussion_history.append({
-                "persona_id": response["persona_id"],
-                "persona": response["persona_name"],
-                "content": response["content"],
-                "timestamp": datetime.now()
-            })
+        # Add responses to history (they're already added in get_ai_responses_sequential)
+        # We don't need to add them again here since they were added during processing
 
     # 4. Rerun the app to display all new messages
     st.rerun()
@@ -502,14 +496,26 @@ def create_streamlit_app():
                 if not st.session_state.get('discussion_concluded', False):
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("⏩ Continue Discussion", key="continue_discussion", use_container_width=True):
-                            with st.spinner("🔄 Generating next round of discussion..."):
-                                # Add a new round of AI responses
-                                results = system.run_initial_discussion(
-                                    system.discussion_topic,
-                                    rounds=1
+                        if st.button("💬 Continue Discussion", key="continue_discussion", use_container_width=True):
+                            with st.spinner("🔄 Generating next discussion messages..."):
+                                # Add a new round of AI responses sequentially
+                                # Select 1-2 random personas to respond
+                                responding_personas = random.sample(
+                                    [p for p in system.personas if not p.is_user],
+                                    min(random.randint(1, 2), len(system.personas) - 1)
                                 )
-                            st.success("✨ Discussion continued with new responses!")
+                                responding_ids = [p.id for p in responding_personas]
+                                
+                                # Get responses sequentially
+                                responses = system.get_ai_responses_sequential(
+                                    system.discussion_topic,
+                                    system.research_findings,
+                                    system.discussion_history,
+                                    responding_ids
+                                )
+                                
+                                # Note: responses are already added to history in get_ai_responses_sequential
+                            st.success("✨ New messages added to discussion!")
                             st.rerun()
                     with col2:
                         if st.button("🏁 Conclude Discussion", key="conclude_discussion", use_container_width=True):

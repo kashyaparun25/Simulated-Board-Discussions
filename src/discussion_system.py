@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai_tools import FileReadTool, WebsiteSearchTool, FirecrawlScrapeWebsiteTool
 from docx import Document
-from docx.shared import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image, ImageDraw
 
 from src.file_processor import FileProcessor
@@ -185,6 +185,8 @@ class BoardDiscussionSystem:
                     api_key=api_key,
                     page_options={"onlyMainContent": True}
                 )
+                # Update the research agent with the new tool
+                self.research_agent = self._create_research_agent()
                 return True
             except Exception as e:
                 print(f"Error initializing web scraper: {e}")
@@ -243,11 +245,13 @@ class BoardDiscussionSystem:
         if urls:
             for url in urls:
                 content = FileProcessor.process_url(url)
-                processed.append({
-                    "name": url,
-                    "type": "url",
-                    "content": content
-                })
+                # Ensure the URL content is properly formatted and included
+                if content:
+                    processed.append({
+                        "name": url,
+                        "type": "url",
+                        "content": content
+                    })
         self.materials = processed
         return processed
 
@@ -256,8 +260,8 @@ class BoardDiscussionSystem:
         if not self.materials:
             return []
 
-        # Create sample content from materials
-        sample_content = "\n\n".join([f"{mat['name']}:\n{mat['content'][:1000]}" for mat in self.materials[:3]])
+        # Create sample content from materials, ensuring URL content is included
+        sample_content = "\n\n".join([f"{mat['name']}:\n{mat['content'][:2000]}" for mat in self.materials[:3]])
 
         # Create a prompt for generating diverse personas
         prompt = f"""Based on the following materials about "{self.discussion_topic}",
@@ -344,8 +348,9 @@ class BoardDiscussionSystem:
             ]
 
     def research_task(self, topic, specific_questions=None):
+        # Include more content from materials to ensure URL data is passed
         materials_text = "\n\n".join(
-            [f"--- {mat['name']} ---\n{mat['content'][:1000]}..." for mat in self.materials]
+            [f"--- {mat['name']} ---\n{mat['content'][:2000]}" for mat in self.materials]
         )
         questions = ""
         if specific_questions:
@@ -425,16 +430,20 @@ Return only the formatted contribution."""
         result = crew.kickoff()
         return result.raw
 
-    def get_ai_responses(self, topic, research_findings, discussion_history, responding_ids: List[str]):
-        import queue
-        import threading
-
-        responses_queue = queue.Queue()
-        threads = []
+    def get_ai_responses_sequential(self, topic, research_findings, discussion_history, responding_ids: List[str]):
+        """
+        Get AI responses sequentially (one after another) rather than all at once.
+        This creates a more natural, chat-like experience.
+        """
+        responses = []
         history_text = "\n\n".join([f"{entry['persona']}: {entry['content']}" for entry in discussion_history])
 
-        def run_crew_task(persona, agent):
-            prompt = f"""Continue the board discussion on: {topic}
+        # Process each persona's response one at a time
+        for i, persona in enumerate(self.personas):
+            if persona.id in responding_ids:
+                agent = self.persona_agents[i]
+                
+                prompt = f"""Continue the board discussion on: {topic}
 
 RESEARCH FINDINGS:
 {research_findings}
@@ -448,37 +457,37 @@ Discussion Dynamics:
 - Creativity: {self.discussion_dynamics['creativity']}
 
 Keep your response concise but thorough (150-350 words)."""
-            task = Task(
-                description=prompt,
-                expected_output=f"A thoughtful response from {persona.name}.",
-                agent=agent
-            )
-            crew = Crew(
-                agents=[agent],
-                tasks=[task],
-                verbose=True,
-                process=Process.sequential
-            )
-            result = crew.kickoff()
-            responses_queue.put({
-                "persona_id": persona.id,
-                "persona_name": persona.name,
-                "content": result.raw
-            })
-
-        for i, persona in enumerate(self.personas):
-            if persona.id in responding_ids:
-                agent = self.persona_agents[i]
-                thread = threading.Thread(target=run_crew_task, args=(persona, agent))
-                threads.append(thread)
-                thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        responses = []
-        while not responses_queue.empty():
-            responses.append(responses_queue.get())
+                
+                task = Task(
+                    description=prompt,
+                    expected_output=f"A thoughtful response from {persona.name}.",
+                    agent=agent
+                )
+                
+                crew = Crew(
+                    agents=[agent],
+                    tasks=[task],
+                    verbose=True,
+                    process=Process.sequential
+                )
+                
+                result = crew.kickoff()
+                response = {
+                    "persona_id": persona.id,
+                    "persona_name": persona.name,
+                    "content": result.raw
+                }
+                responses.append(response)
+                
+                # Add this response to the history for the next persona to see
+                discussion_history.append({
+                    "persona_id": persona.id,
+                    "persona": persona.name,
+                    "content": result.raw
+                })
+                
+                # Update history text for the next iteration
+                history_text = "\n\n".join([f"{entry['persona']}: {entry['content']}" for entry in discussion_history])
 
         return responses
 
@@ -495,7 +504,9 @@ Keep your response concise but thorough (150-350 words)."""
             self.research_findings = research_result.raw
         else:
             self.research_findings = "No research materials provided."
+            
         for round_num in range(1, rounds + 1):
+            # For initial discussion, we still generate all responses at once for the opening
             for i, agent in enumerate(self.persona_agents):
                 if self.personas[i].is_user:
                     continue

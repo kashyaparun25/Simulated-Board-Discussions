@@ -15,5 +15,5 @@ python-docx
 openpyxl
 beautifulsoup4
 chromadb
-pysqlite3-binary
+#pysqlite3-binary
 PyPDF2
